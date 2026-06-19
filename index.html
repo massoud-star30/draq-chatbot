@@ -1,0 +1,54 @@
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const { messages, storeData } = req.body;
+
+  if (!messages || !storeData) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const systemPrompt = `أنت مساعد ذكي لخدمة العملاء في "${storeData.nameAr}" (${storeData.nameEn}).
+تتحدث بالعربية أو الإنجليزية حسب لغة الزبون تلقائياً.
+كن ودوداً ومختصراً ومباشراً في ردودك (2-4 جمل فقط).
+
+المنتجات المتوفرة:
+${storeData.products.map(p => `- ${p.nameAr} / ${p.nameEn}: ${p.price} ${p.currency}${p.sizes ? ` | المقاسات: ${p.sizes.join(", ")}` : ""} | المخزون: ${p.stock} قطعة | ${p.descAr}`).join("\n")}
+
+سياسة الشحن: ${storeData.shipping}
+سياسة الاستبدال: ${storeData.returns}
+
+إذا سُئلت عن منتج غير موجود، أخبر الزبون بلطف أنه غير متوفر واقترح بديلاً.
+لا تخترع معلومات غير موجودة أعلاه.`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: messages,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      return res.status(response.status).json({ error: error.error?.message || "API error" });
+    }
+
+    const data = await response.json();
+    const text = data.content?.find(c => c.type === "text")?.text || "";
+    return res.status(200).json({ reply: text });
+
+  } catch (error) {
+    return res.status(500).json({ error: "Server error, please try again" });
+  }
+}
+
